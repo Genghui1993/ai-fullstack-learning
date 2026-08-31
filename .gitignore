@@ -1,0 +1,11 @@
+# Python environment
+backend/.venv/
+
+# API Key
+backend/.env
+
+# Python cache
+__pycache__/
+*.pyc
+#前端
+frontend/node_modules/

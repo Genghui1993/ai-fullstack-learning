@@ -7,5 +7,5 @@ backend/.env
 # Python cache
 __pycache__/
 *.pyc
-#前端
+#Node
 frontend/node_modules/

@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
+from fastapi.responses import StreamingResponse
 
 
 load_dotenv()
@@ -62,3 +63,33 @@ def chat(request: ChatRequest):
     return {
         "answer": response.choices[0].message.content
     }
+
+@app.post("/chat/stream")
+def chat_stream(request: ChatRequest):
+
+    def generate():
+
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {
+                    "role": "user",
+                    "content": request.message
+                }
+            ],
+            stream=True
+        )
+
+
+        for chunk in response:
+
+            content = chunk.choices[0].delta.content
+
+            if content:
+                yield content
+
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/plain"
+    )

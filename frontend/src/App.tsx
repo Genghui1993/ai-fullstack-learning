@@ -1,161 +1,309 @@
 import { useState, useRef, useEffect } from "react";
 import "./App.css";
+
+
 interface Message {
   role: "user" | "ai";
   content: string;
 }
 
+
 function App() {
+
   const [input, setInput] = useState("");
+
   const [messages, setMessages] = useState<Message[]>([]);
+
   const [loading, setLoading] = useState(false);
+
+
   const bottomRef = useRef<HTMLDivElement>(null);
+
+
+
   useEffect(()=>{
+
     bottomRef.current?.scrollIntoView({
       behavior:"smooth"
     });
+
   },[messages]);
+
+
+
   async function sendMessage() {
 
-    if (!input.trim()) return;
+    if (!input.trim() || loading) return;
+
 
 
     const userMessage: Message = {
-      role: "user",
-      content: input,
+      role:"user",
+      content:input
     };
 
 
-    setMessages((prev) => [
+    setMessages(prev=>[
       ...prev,
       userMessage
     ]);
 
 
     setInput("");
+
     setLoading(true);
+
 
 
     try {
 
+
       const response = await fetch(
-        "http://localhost:8000/chat",
+        "http://localhost:8000/chat/stream",
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+          method:"POST",
+
+          headers:{
+            "Content-Type":"application/json"
           },
-          body: JSON.stringify({
-            message: userMessage.content,
-          }),
+
+          body:JSON.stringify({
+            message:userMessage.content
+          })
         }
       );
 
 
-      const data = await response.json();
+
+      const reader = response.body?.getReader();
 
 
-      const aiMessage: Message = {
-        role: "ai",
-        content: data.answer,
-      };
+      const decoder = new TextDecoder();
 
 
-      setMessages((prev) => [
-        ...prev,
-        aiMessage
-      ]);
+      let aiContent = "";
 
 
-    } catch (error) {
+
+      if(reader){
+
+
+        setMessages(prev=>[
+          ...prev,
+          {
+            role:"ai",
+            content:""
+          }
+        ]);
+
+
+
+        while(true){
+
+
+          const {
+            done,
+            value
+          } = await reader.read();
+
+
+
+          if(done){
+            break;
+          }
+
+
+
+          const chunk = decoder.decode(
+            value,
+            {
+              stream:true
+            }
+          );
+
+
+
+          aiContent += chunk;
+
+
+
+          setMessages(prev=>{
+
+
+            const newMessages = [
+              ...prev
+            ];
+
+
+
+            newMessages[
+              newMessages.length - 1
+            ] = {
+
+              role:"ai",
+
+              content:aiContent
+
+            };
+
+
+
+            return newMessages;
+
+
+          });
+
+
+        }
+
+
+      }
+
+
+
+    } catch(error){
+
 
       console.error(error);
 
-      setMessages((prev)=>[
+
+
+      setMessages(prev=>[
+
         ...prev,
+
         {
           role:"ai",
           content:"请求失败，请检查后端服务"
         }
+
       ]);
+
+
 
     } finally {
 
+
       setLoading(false);
 
+
     }
+
   }
 
 
+
   return (
+
     <div className="chat-container">
+
 
       <h1>
         AI Assistant
       </h1>
 
 
+
       <div className="messages">
+
 
         {
           messages.map((msg,index)=>(
+
             <div
               key={index}
               className={msg.role}
             >
+
               <b>
-                {msg.role === "user" 
-                ? "你：" 
-                : "AI："}
+                {
+                  msg.role==="user"
+                  ? "你："
+                  : "AI："
+                }
               </b>
+
 
               <p>
                 {msg.content}
               </p>
 
+
             </div>
+
           ))
         }
 
 
-        {
-          loading &&
-          <div className="ai">
-            AI正在思考...
-          </div>
-        }
 
         <div ref={bottomRef}></div>
+
+
       </div>
+
+
 
 
       <div className="input-area">
 
+
         <input
+
           value={input}
+
           onChange={
             (e)=>setInput(e.target.value)
           }
+
+
           placeholder="请输入你的问题..."
+
+
           onKeyDown={
             (e)=>{
-              if(e.key==="Enter"){
+
+              if(
+                e.key==="Enter"
+              ){
+
                 sendMessage();
+
               }
+
             }
           }
+
         />
 
 
-        <button onClick={sendMessage}>
-          发送
+
+        <button
+
+          onClick={sendMessage}
+
+          disabled={loading}
+
+        >
+
+          {
+            loading
+            ? "生成中..."
+            : "发送"
+          }
+
+
         </button>
+
+
 
       </div>
 
 
+
     </div>
+
   );
+
 }
 
 

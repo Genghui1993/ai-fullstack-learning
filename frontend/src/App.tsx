@@ -11,7 +11,10 @@ function App() {
 
   const [input, setInput] = useState("");
 
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(()=>{
+    const saved = localStorage.getItem("chat_messages")
+    return saved ? JSON.parse(saved) : [];
+  });
 
   const [loading, setLoading] = useState(false);
 
@@ -25,6 +28,8 @@ function App() {
     bottomRef.current?.scrollIntoView({
       behavior:"smooth"
     });
+
+    localStorage.setItem("chat_messages", JSON.stringify(messages));
 
   },[messages]);
 
@@ -195,17 +200,23 @@ function App() {
   return (
 
     <div className="chat-container">
-
-
       <h1>
         AI Assistant
       </h1>
-
-
-
+      <button 
+      style={{
+        marginBottom: "10px"
+      }}
+        onClick={()=>{
+          setMessages([]);
+          localStorage.removeItem(
+            "chat_messages"
+          );
+        }}
+        >
+        清空对话
+      </button>
       <div className="messages">
-
-
         {
           messages.map((msg,index)=>(
 
@@ -251,13 +262,7 @@ function App() {
 
 
       </div>
-
-
-
-
       <div className="input-area">
-
-
         <input
 
           value={input}
@@ -308,9 +313,6 @@ function App() {
 
 
       </div>
-
-
-
     </div>
 
   );

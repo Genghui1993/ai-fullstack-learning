@@ -4,6 +4,7 @@ import "./App.css";
 interface Message {
   role: "user" | "ai";
   content: string;
+  time: string;
 }
 
 
@@ -43,7 +44,8 @@ function App() {
 
     const userMessage: Message = {
       role:"user",
-      content:input
+      content:input,
+      time:new Date().toLocaleTimeString()
     };
 
 
@@ -96,7 +98,8 @@ function App() {
           ...prev,
           {
             role:"ai",
-            content:""
+            content:"",
+            time:new Date().toLocaleTimeString()
           }
         ]);
 
@@ -138,13 +141,15 @@ function App() {
               ...prev
             ];
 
-
+            const lastMessage = newMessages[
+              newMessages.length - 1
+            ];
 
             newMessages[
               newMessages.length - 1
             ] = {
 
-              role:"ai",
+              ...lastMessage,
 
               content:aiContent
 
@@ -217,44 +222,49 @@ function App() {
         清空对话
       </button>
       <div className="messages">
-        {
-          messages.map((msg,index)=>(
+      {
+        messages.map((msg,index)=>(
 
-            <div
-              key={index}
-              className={msg.role}
-            >
+          <div
+            key={index}
+            className={`message ${msg.role}`}
+          >
 
-              <b>
-                {
-                  msg.role==="user"
-                  ? "你："
-                  : "AI："
-                }
-              </b>
+            <b>
+              {
+                msg.role === "user"
+                ? "👤 你"
+                : "🤖 AI"
+              }
+            </b>
 
 
-              <div className="content">
+            <div className="content">
 
-                {
-                  msg.role === "ai"
-                  ?
-                  <ReactMarkdown>
-                    {msg.content}
-                  </ReactMarkdown>
-                  :
-                  <p>
-                    {msg.content}
-                  </p>
-                }
-
-                </div>
-
+              {
+                msg.role === "ai"
+                ?
+                <ReactMarkdown>
+                  {msg.content}
+                </ReactMarkdown>
+                :
+                <p>
+                  {msg.content}
+                </p>
+              }
 
             </div>
 
-          ))
-        }
+
+            <span className="time">
+              {msg.time}
+            </span>
+
+
+          </div>
+
+        ))
+      }
 
 
 

@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
 import "./App.css";
-
-
 interface Message {
   role: "user" | "ai";
   content: string;
@@ -224,9 +223,21 @@ function App() {
               </b>
 
 
-              <p>
-                {msg.content}
-              </p>
+              <div className="content">
+
+                {
+                  msg.role === "ai"
+                  ?
+                  <ReactMarkdown>
+                    {msg.content}
+                  </ReactMarkdown>
+                  :
+                  <p>
+                    {msg.content}
+                  </p>
+                }
+
+                </div>
 
 
             </div>

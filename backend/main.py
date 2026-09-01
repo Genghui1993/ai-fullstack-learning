@@ -1,3 +1,5 @@
+from rag.embedding import embed_texts
+from rag.vector_store import search
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -45,23 +47,69 @@ def root():
 @app.post("/chat")
 def chat(request: ChatRequest):
 
+
+    # 1. 用户问题转向量
+
+    question_vector = embed_texts(
+        [
+            request.message
+        ]
+    )[0]
+
+
+
+    # 2. 去知识库搜索
+
+    result = search(
+        question_vector
+    )
+
+
+
+    # 3. 获取相关资料
+
+    context = "\n".join(
+        result["documents"][0]
+    )
+
+
+
+    # 4. 拼接给AI的提示词
+
+    prompt = f"""
+        你是一个企业知识库助手。
+
+        请根据下面资料回答问题。
+
+        资料：
+        {context}
+
+
+        用户问题：
+        {request.message}
+
+
+        如果资料没有答案，请告诉用户不知道。
+        """
+
+
+
     response = client.chat.completions.create(
+
         model="deepseek-chat",
+
         messages=[
             {
-                "role":"system",
-                "content":"你是一个专业AI助手，请用中文回答问题"
-            },
-            {
-                "role": "user",
-                "content": request.message
+                "role":"user",
+                "content":prompt
             }
         ]
+
     )
 
 
     return {
-        "answer": response.choices[0].message.content
+         "answer": response.choices[0].message.content
     }
 
 @app.post("/chat/stream")

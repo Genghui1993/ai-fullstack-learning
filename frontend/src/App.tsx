@@ -65,7 +65,7 @@ function App() {
 
 
       const response = await fetch(
-        "http://localhost:8000/chat/stream",
+        "http://localhost:8000/chat",
         {
           method:"POST",
 
@@ -81,7 +81,7 @@ function App() {
 
 
 
-      const reader = response.body?.getReader();
+      // const reader = response.body?.getReader();
 
 
       const decoder = new TextDecoder();
@@ -89,84 +89,84 @@ function App() {
 
       let aiContent = "";
 
+      const data = await response.json();
 
-
-      if(reader){
+      // if(reader){
 
 
         setMessages(prev=>[
           ...prev,
           {
             role:"ai",
-            content:"",
+            content:data.answer,
             time:new Date().toLocaleTimeString()
           }
         ]);
 
 
 
-        while(true){
+        // while(true){
 
 
-          const {
-            done,
-            value
-          } = await reader.read();
-
-
-
-          if(done){
-            break;
-          }
+        //   const {
+        //     done,
+        //     value
+        //   } = await reader.read();
 
 
 
-          const chunk = decoder.decode(
-            value,
-            {
-              stream:true
-            }
-          );
+        //   if(done){
+        //     break;
+        //   }
 
 
 
-          aiContent += chunk;
+        //   const chunk = decoder.decode(
+        //     value,
+        //     {
+        //       stream:true
+        //     }
+        //   );
 
 
 
-          setMessages(prev=>{
-
-
-            const newMessages = [
-              ...prev
-            ];
-
-            const lastMessage = newMessages[
-              newMessages.length - 1
-            ];
-
-            newMessages[
-              newMessages.length - 1
-            ] = {
-
-              ...lastMessage,
-
-              content:aiContent
-
-            };
+        //   aiContent += chunk;
 
 
 
-            return newMessages;
+        //   setMessages(prev=>{
 
 
-          });
+        //     const newMessages = [
+        //       ...prev
+        //     ];
+
+        //     const lastMessage = newMessages[
+        //       newMessages.length - 1
+        //     ];
+
+        //     newMessages[
+        //       newMessages.length - 1
+        //     ] = {
+
+        //       ...lastMessage,
+
+        //       content:aiContent
+
+        //     };
 
 
-        }
+
+        //     return newMessages;
 
 
-      }
+        //   });
+
+
+        // }
+
+
+      // }
 
 
 
@@ -248,7 +248,9 @@ function App() {
                   {msg.content}
                 </ReactMarkdown>
                 :
-                <p>
+                <p style={{
+                  whiteSpace:"pre-wrap"
+                }}>
                   {msg.content}
                 </p>
               }

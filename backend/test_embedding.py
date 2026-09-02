@@ -1,12 +1,16 @@
 from rag.loader import load_pdf
 from rag.splitter import split_text
 from rag.embedding import embed_texts
+# from rag.vector_store import search
 from rag.vector_store import add_documents, search
 
 
 
+# text = load_pdf(
+#     "test.pdf"
+# )
 text = load_pdf(
-    "test.pdf"
+    "RAG_产品说明书.pdf"
 )
 
 
@@ -34,8 +38,7 @@ add_documents(
 )
 
 
-
-question = "怎么申请年假？"
+question = "这个系统支持什么功能？"
 
 
 
@@ -53,3 +56,13 @@ result = search(
 
 
 print(result)
+
+from rag.vector_store import collection
+
+data = collection.get()
+
+print(len(data["documents"]))
+
+for doc in data["documents"]:
+    print("----------------")
+    print(doc[:100])

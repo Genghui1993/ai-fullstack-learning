@@ -18,9 +18,11 @@ function App() {
   });
 
   const [loading, setLoading] = useState(false);
-
+  const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
 
 
@@ -35,6 +37,43 @@ function App() {
   },[messages]);
 
 
+
+  async function uploadFile(file: File) {
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      setUploadStatus("目前只支持 PDF 文件");
+      return;
+    }
+
+    setUploading(true);
+    setUploadStatus(`正在上传 ${file.name}...`);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch("http://localhost:8000/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("upload failed");
+      }
+
+      const data = await response.json();
+      setUploadStatus(
+        `已入库：${data.filename}（${data.chunks} 个片段）`
+      );
+    } catch (error) {
+      console.error(error);
+      setUploadStatus("上传失败，请检查后端服务");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  }
 
   async function sendMessage() {
 
@@ -206,21 +245,44 @@ function App() {
 
     <div className="chat-container">
       <h1>
-        AI Assistant
+        个人知识库
       </h1>
-      <button 
-      style={{
-        marginBottom: "10px"
-      }}
-        onClick={()=>{
-          setMessages([]);
-          localStorage.removeItem(
-            "chat_messages"
-          );
-        }}
+      <p className="subtitle">
+        上传资料后，直接提问即可基于知识库回答
+      </p>
+
+      <div className="toolbar">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,application/pdf"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+              uploadFile(file);
+            }
+          }}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
         >
-        清空对话
-      </button>
+          {uploading ? "上传中..." : "上传 PDF"}
+        </button>
+        <button
+          onClick={() => {
+            setMessages([]);
+            localStorage.removeItem("chat_messages");
+          }}
+        >
+          清空对话
+        </button>
+      </div>
+
+      {uploadStatus && (
+        <p className="upload-status">{uploadStatus}</p>
+      )}
       <div className="messages">
       {
         messages.map((msg,index)=>(

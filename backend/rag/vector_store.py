@@ -1,3 +1,4 @@
+import uuid
 import chromadb
 
 
@@ -14,19 +15,27 @@ collection = client.get_or_create_collection(
 
 def add_documents(
     texts,
-    embeddings
+    embeddings,
+    filename: str | None = None
 ):
 
     ids = [
-        str(i)
-        for i in range(len(texts))
+        str(uuid.uuid4())
+        for _ in texts
     ]
 
+    metadatas = None
+    if filename:
+        metadatas = [
+            {"filename": filename}
+            for _ in texts
+        ]
 
     collection.add(
         documents=texts,
         embeddings=embeddings,
-        ids=ids
+        ids=ids,
+        metadatas=metadatas
     )
 
 
@@ -36,11 +45,18 @@ def search(
     top_k=3
 ):
 
+    count = collection.count()
+
+    if count == 0:
+        return {
+            "documents": [[]]
+        }
+
     result = collection.query(
         query_embeddings=[
             embedding
         ],
-        n_results=top_k
+        n_results=min(top_k, count)
     )
 
 

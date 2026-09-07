@@ -9,6 +9,33 @@ h1 {
   text-align: center;
 }
 
+.subtitle {
+  text-align: center;
+  color: #666;
+  margin-top: -8px;
+  margin-bottom: 16px;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.toolbar button {
+  width: auto;
+  margin-left: 0;
+  padding: 8px 14px;
+}
+
+.upload-status {
+  text-align: center;
+  color: #2563eb;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
 
 .messages {
   border: 1px solid #ddd;

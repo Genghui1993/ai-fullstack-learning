@@ -73,17 +73,15 @@ def chat(request: ChatRequest):
 
 
     # 3. 获取相关资料
-
-    context = "\n".join(
-        result["documents"][0]
-    )
+    docs = result["documents"][0] if result.get("documents") else []
+    context = "\n".join(docs) if docs else "（知识库为空，暂无资料）"
 
 
 
     # 4. 拼接给AI的提示词
 
     prompt = f"""
-        你是一个企业知识库助手。
+        你是一个个人知识库助手。
 
         请根据下面资料回答问题。
 
@@ -132,13 +130,12 @@ def chat_stream(request: ChatRequest):
     )
 
     # 3. 获取相关资料
-    context = "\n".join(
-        result["documents"][0]
-    )
+    docs = result["documents"][0] if result.get("documents") else []
+    context = "\n".join(docs) if docs else "（知识库为空，暂无资料）"
 
     # 4. 构造 Prompt
     prompt = f"""
-        你是一个企业知识库助手。
+        你是一个个人知识库助手。
 
         请严格根据下面的知识库资料回答用户问题。
 
@@ -181,6 +178,13 @@ async def upload_file(
     file: UploadFile = File(...)
 ):
 
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        return {
+            "message": "目前只支持 PDF 文件",
+            "filename": file.filename,
+            "chunks": 0
+        }
+
     file_id = str(uuid.uuid4())
 
     file_path = f"uploads/{file_id}.pdf"
@@ -219,7 +223,8 @@ async def upload_file(
 
     add_documents(
         chunks,
-        embeddings
+        embeddings,
+        filename=file.filename
     )
 
 

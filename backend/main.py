@@ -1,9 +1,10 @@
-from rag.loader import load_pdf
+from rag.loader import load_document
 from rag.splitter import split_text
 from rag.vector_store import add_documents
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, HTTPException
 import shutil
 import uuid
+from pathlib import Path
 from rag.embedding import embed_texts
 from rag.vector_store import search
 from fastapi.middleware.cors import CORSMiddleware
@@ -178,48 +179,42 @@ async def upload_file(
     file: UploadFile = File(...)
 ):
 
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        return {
-            "message": "目前只支持 PDF 文件",
-            "filename": file.filename,
-            "chunks": 0
-        }
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="未选择文件")
+
+    suffix = Path(file.filename).suffix.lower()
+
+    if suffix not in {".pdf", ".docx"}:
+        raise HTTPException(
+            status_code=400,
+            detail="目前只支持 PDF、Word（.docx）文件"
+        )
 
     file_id = str(uuid.uuid4())
-
-    file_path = f"uploads/{file_id}.pdf"
-
+    file_path = f"uploads/{file_id}{suffix}"
 
     with open(file_path, "wb") as buffer:
-
         shutil.copyfileobj(
             file.file,
             buffer
         )
 
+    try:
+        text = load_document(file_path)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"文件解析失败，请确认是有效的 PDF 或 Word（.docx）：{e}"
+        )
 
-    # 1.读取PDF
+    if not text.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="文件中没有可提取的文本"
+        )
 
-    text = load_pdf(
-        file_path
-    )
-
-
-    # 2.切chunk
-
-    chunks = split_text(
-        text
-    )
-
-
-    # 3.生成向量
-
-    embeddings = embed_texts(
-        chunks
-    )
-
-
-    # 4.存入Chroma
+    chunks = split_text(text)
+    embeddings = embed_texts(chunks)
 
     add_documents(
         chunks,
@@ -227,9 +222,8 @@ async def upload_file(
         filename=file.filename
     )
 
-
     return {
-        "message":"上传并入库成功",
-        "filename":file.filename,
-        "chunks":len(chunks)
+        "message": "上传并入库成功",
+        "filename": file.filename,
+        "chunks": len(chunks)
     }

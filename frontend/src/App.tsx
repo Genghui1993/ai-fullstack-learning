@@ -39,8 +39,9 @@ function App() {
 
 
   async function uploadFile(file: File) {
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
-      setUploadStatus("目前只支持 PDF 文件");
+    const name = file.name.toLowerCase();
+    if (!name.endsWith(".pdf") && !name.endsWith(".docx")) {
+      setUploadStatus("目前只支持 PDF、Word（.docx）");
       return;
     }
 
@@ -56,11 +57,16 @@ function App() {
         body: formData,
       });
 
+      const data = await response.json().catch(() => null);
+
       if (!response.ok) {
-        throw new Error("upload failed");
+        const detail =
+          data?.detail ||
+          "上传失败，请检查文件格式";
+        setUploadStatus(typeof detail === "string" ? detail : "上传失败");
+        return;
       }
 
-      const data = await response.json();
       setUploadStatus(
         `已入库：${data.filename}（${data.chunks} 个片段）`
       );
@@ -255,7 +261,7 @@ function App() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".pdf,application/pdf"
+          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           style={{ display: "none" }}
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -268,7 +274,7 @@ function App() {
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
         >
-          {uploading ? "上传中..." : "上传 PDF"}
+          {uploading ? "上传中..." : "上传资料"}
         </button>
         <button
           onClick={() => {

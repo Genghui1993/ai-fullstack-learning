@@ -3,6 +3,7 @@ backend/.venv/
 
 # API Key
 backend/.env
+.env.production
 
 # Python cache
 __pycache__/
@@ -16,3 +17,4 @@ backend/.auth_secret
 
 # Node
 frontend/node_modules/
+frontend/dist/

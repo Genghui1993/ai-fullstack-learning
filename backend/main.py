@@ -37,7 +37,8 @@ from observability import create_query_log, finish_query_log, usage_to_dict
 
 
 BASE_DIR = Path(__file__).resolve().parent
-UPLOAD_DIR = BASE_DIR / "uploads"
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
+UPLOAD_DIR = DATA_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 load_dotenv(BASE_DIR / ".env")

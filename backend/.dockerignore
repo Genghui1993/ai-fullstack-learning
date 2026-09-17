@@ -1,0 +1,8 @@
+.venv
+.env
+app.db
+.auth_secret
+chroma
+uploads
+__pycache__
+*.pyc

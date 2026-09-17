@@ -50,6 +50,29 @@ npm run dev
 
 浏览器访问 `http://localhost:5173`。
 
+## Docker 部署
+
+服务器需提前安装 Docker 与 Docker Compose。首次构建会下载 Python 依赖和中文 Embedding 模型，耗时会比后续启动长。
+
+```bash
+cp .env.production.example .env.production
+# 编辑 .env.production，填写 DEEPSEEK_API_KEY 和随机 AUTH_SECRET
+docker compose up -d --build
+```
+
+启动后访问 `http://服务器IP:8080`。前端由 Nginx 托管，`/api` 会转发到 FastAPI；流式回答已关闭代理缓冲。数据库、上传文档、向量索引和模型缓存保存在 Docker volume 中，重新发布不会丢失。
+
+常用维护命令：
+
+```bash
+docker compose ps
+docker compose logs -f backend
+docker compose up -d --build
+docker compose down
+```
+
+生产环境建议再用云厂商安全组只开放 80/443，并通过 Caddy、Nginx Proxy Manager 或云负载均衡配置域名和 HTTPS。
+
 ## 环境变量
 
 | 位置 | 变量 | 说明 |

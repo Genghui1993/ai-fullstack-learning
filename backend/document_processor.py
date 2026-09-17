@@ -2,6 +2,7 @@ import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 
 from auth import get_connection
 from rag.embedding import embed_texts
@@ -11,7 +12,8 @@ from rag.vector_store import add_documents, delete_document, list_documents
 
 
 BASE_DIR = Path(__file__).resolve().parent
-UPLOAD_DIR = BASE_DIR / "uploads"
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
+UPLOAD_DIR = DATA_DIR / "uploads"
 EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="document-worker")
 
 

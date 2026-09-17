@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - rag_data:/data
+      - model_cache:/models
+    expose:
+      - "8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${APP_PORT:-8080}:80"
+
+volumes:
+  rag_data:
+  model_cache:

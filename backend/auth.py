@@ -14,8 +14,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE_PATH = BASE_DIR / "app.db"
-SECRET_PATH = BASE_DIR / ".auth_secret"
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATABASE_PATH = DATA_DIR / "app.db"
+SECRET_PATH = DATA_DIR / ".auth_secret"
 TOKEN_TTL = timedelta(days=7)
 PBKDF2_ITERATIONS = 600_000
 

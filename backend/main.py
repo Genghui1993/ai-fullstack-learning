@@ -1,5 +1,3 @@
-from rag.loader import load_document_sections
-from rag.splitter import split_sections
 from rag.vector_store import (
     add_documents,
     assign_unscoped_documents,
@@ -20,6 +18,7 @@ from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
+import time
 from fastapi.responses import StreamingResponse
 from auth import (
     ensure_default_knowledge_base,
@@ -27,6 +26,14 @@ from auth import (
     get_current_user,
     router as auth_router,
 )
+from document_processor import (
+    file_sha256,
+    migrate_existing_documents,
+    recover_document_jobs,
+    schedule_document_job,
+    utc_now,
+)
+from observability import create_query_log, finish_query_log, usage_to_dict
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -44,6 +51,12 @@ if not api_key:
 
 app = FastAPI()
 app.include_router(auth_router)
+
+
+@app.on_event("startup")
+def initialize_document_jobs():
+    migrate_existing_documents()
+    recover_document_jobs()
 
 app.add_middleware(
     CORSMiddleware,
@@ -145,65 +158,113 @@ def root():
 
 @app.post("/chat")
 def chat(request: ChatRequest, user=Depends(get_current_user)):
+    started_at = time.perf_counter()
     get_owned_knowledge_base(request.knowledge_base_id, user["id"])
     context, sources = retrieve_context(
         request.message, user["id"], request.knowledge_base_id
     )
-    prompt = build_prompt(request.message, context)
-
-
-
-    response = client.chat.completions.create(
-
-        model="deepseek-chat",
-
-        messages=[
-            {
-                "role":"user",
-                "content":prompt
-            }
-        ]
-
+    retrieval_ms = (time.perf_counter() - started_at) * 1000
+    log_id = create_query_log(
+        user["id"],
+        request.knowledge_base_id,
+        request.message,
+        retrieval_ms,
+        sources,
     )
-
-
-    return {
-         "answer": response.choices[0].message.content,
-         "sources": sources,
-    }
+    prompt = build_prompt(request.message, context)
+    model_started_at = time.perf_counter()
+    try:
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "user", "content": prompt}],
+        )
+        finish_query_log(
+            log_id,
+            status="success",
+            model_ms=(time.perf_counter() - model_started_at) * 1000,
+            total_ms=(time.perf_counter() - started_at) * 1000,
+            usage=usage_to_dict(response.usage),
+        )
+        return {
+            "answer": response.choices[0].message.content,
+            "sources": sources,
+            "trace_id": log_id,
+        }
+    except Exception as error:
+        finish_query_log(
+            log_id,
+            status="error",
+            model_ms=(time.perf_counter() - model_started_at) * 1000,
+            total_ms=(time.perf_counter() - started_at) * 1000,
+            error=str(error),
+        )
+        raise HTTPException(status_code=502, detail="模型服务暂时不可用")
 
 @app.post("/chat/stream")
 def chat_stream(request: ChatRequest, user=Depends(get_current_user)):
+    started_at = time.perf_counter()
     get_owned_knowledge_base(request.knowledge_base_id, user["id"])
     context, sources = retrieve_context(
         request.message, user["id"], request.knowledge_base_id
+    )
+    retrieval_ms = (time.perf_counter() - started_at) * 1000
+    log_id = create_query_log(
+        user["id"],
+        request.knowledge_base_id,
+        request.message,
+        retrieval_ms,
+        sources,
     )
     prompt = build_prompt(request.message, context)
 
     # 5. 调用 DeepSeek，并开启流式输出
     def generate():
         yield json.dumps(
-            {"type": "sources", "sources": sources}, ensure_ascii=False
+            {"type": "sources", "sources": sources, "trace_id": log_id}, ensure_ascii=False
         ) + "\n"
 
+        model_started_at = time.perf_counter()
+        status = "processing"
+        error_message = None
+        usage = {}
         try:
             response = client.chat.completions.create(
                 model="deepseek-chat",
                 messages=[{"role": "user", "content": prompt}],
                 stream=True,
+                stream_options={"include_usage": True},
             )
 
             for chunk in response:
-                content = chunk.choices[0].delta.content
+                if getattr(chunk, "usage", None):
+                    usage = usage_to_dict(chunk.usage)
+                content = None
+                if getattr(chunk, "choices", None):
+                    content = chunk.choices[0].delta.content
                 if content:
                     yield json.dumps(
                         {"type": "token", "content": content}, ensure_ascii=False
                     ) + "\n"
-        except Exception:
+            status = "success"
+        except GeneratorExit:
+            status = "cancelled"
+            raise
+        except Exception as error:
+            status = "error"
+            error_message = str(error)
             yield json.dumps(
                 {"type": "error", "message": "模型服务暂时不可用，请稍后重试"},
                 ensure_ascii=False,
             ) + "\n"
+        finally:
+            finish_query_log(
+                log_id,
+                status=status,
+                model_ms=(time.perf_counter() - model_started_at) * 1000,
+                total_ms=(time.perf_counter() - started_at) * 1000,
+                usage=usage,
+                error=error_message,
+            )
 
     return StreamingResponse(
         generate(),
@@ -215,6 +276,7 @@ def chat_stream(request: ChatRequest, user=Depends(get_current_user)):
 def get_knowledge_bases(user=Depends(get_current_user)):
     default = ensure_default_knowledge_base(user["id"])
     assign_unscoped_documents(user["id"], default["id"])
+    migrate_existing_documents()
     with get_connection() as connection:
         rows = connection.execute(
             "SELECT * FROM knowledge_bases WHERE user_id = ? ORDER BY created_at",
@@ -276,18 +338,83 @@ def remove_knowledge_base(
         if count <= 1:
             raise HTTPException(status_code=400, detail="至少保留一个知识库")
 
-    documents = list_documents(user["id"], knowledge_base_id)
-    for document in documents:
-        delete_document(document["id"])
-        for file_path in UPLOAD_DIR.glob(f"{document['id']}.*"):
+    with get_connection() as connection:
+        jobs = connection.execute(
+            "SELECT id, stored_path FROM document_jobs WHERE user_id = ? AND knowledge_base_id = ?",
+            (user["id"], knowledge_base_id),
+        ).fetchall()
+        connection.execute(
+            "DELETE FROM document_jobs WHERE user_id = ? AND knowledge_base_id = ?",
+            (user["id"], knowledge_base_id),
+        )
+    for job in jobs:
+        delete_document(job["id"])
+        if job["stored_path"]:
+            Path(job["stored_path"]).unlink(missing_ok=True)
+        for file_path in UPLOAD_DIR.glob(f"{job['id']}.*"):
             file_path.unlink(missing_ok=True)
 
     with get_connection() as connection:
+        connection.execute(
+            "DELETE FROM query_logs WHERE user_id = ? AND knowledge_base_id = ?",
+            (user["id"], knowledge_base_id),
+        )
         connection.execute(
             "DELETE FROM knowledge_bases WHERE id = ? AND user_id = ?",
             (knowledge_base_id, user["id"]),
         )
     return {"message": "知识库已删除"}
+
+
+@app.get("/observability/summary")
+def get_observability_summary(
+    knowledge_base_id: str,
+    user=Depends(get_current_user),
+):
+    get_owned_knowledge_base(knowledge_base_id, user["id"])
+    with get_connection() as connection:
+        summary = connection.execute(
+            """
+            SELECT
+                COUNT(*) AS requests,
+                SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successes,
+                SUM(CASE WHEN status IN ('error', 'cancelled') THEN 1 ELSE 0 END) AS failures,
+                AVG(CASE WHEN status = 'success' THEN retrieval_ms END) AS avg_retrieval_ms,
+                AVG(CASE WHEN status = 'success' THEN model_ms END) AS avg_model_ms,
+                AVG(CASE WHEN status = 'success' THEN total_ms END) AS avg_total_ms,
+                SUM(total_tokens) AS total_tokens
+            FROM query_logs
+            WHERE user_id = ? AND knowledge_base_id = ?
+            """,
+            (user["id"], knowledge_base_id),
+        ).fetchone()
+        recent = connection.execute(
+            """
+            SELECT id, question, status, retrieval_ms, model_ms, total_ms,
+                   prompt_tokens, completion_tokens, total_tokens,
+                   sources_json, error, created_at
+            FROM query_logs
+            WHERE user_id = ? AND knowledge_base_id = ?
+            ORDER BY created_at DESC
+            LIMIT 20
+            """,
+            (user["id"], knowledge_base_id),
+        ).fetchall()
+
+    summary_data = dict(summary)
+    for key in ("requests", "successes", "failures", "total_tokens"):
+        summary_data[key] = summary_data.get(key) or 0
+    for key in ("avg_retrieval_ms", "avg_model_ms", "avg_total_ms"):
+        summary_data[key] = round(summary_data.get(key) or 0, 2)
+
+    recent_data = []
+    for row in recent:
+        item = dict(row)
+        sources = json.loads(item.pop("sources_json") or "[]")
+        item["source_count"] = len(sources)
+        item["top_score"] = sources[0].get("score") if sources else None
+        recent_data.append(item)
+    return {"summary": summary_data, "recent": recent_data}
 
 
 @app.get("/documents")
@@ -296,9 +423,17 @@ def get_documents(
     user=Depends(get_current_user),
 ):
     get_owned_knowledge_base(knowledge_base_id, user["id"])
-    return {
-        "documents": list_documents(user["id"], knowledge_base_id)
-    }
+    with get_connection() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, filename, status, stage, error, chunks, created_at, updated_at
+            FROM document_jobs
+            WHERE user_id = ? AND knowledge_base_id = ?
+            ORDER BY created_at DESC
+            """,
+            (user["id"], knowledge_base_id),
+        ).fetchall()
+    return {"documents": [dict(row) for row in rows]}
 
 
 @app.delete("/documents/{file_id}")
@@ -308,21 +443,26 @@ def remove_document(
     user=Depends(get_current_user),
 ):
     get_owned_knowledge_base(knowledge_base_id, user["id"])
-    documents = {
-        item["id"]: item
-        for item in list_documents(user["id"], knowledge_base_id)
-    }
-    if file_id not in documents:
+    with get_connection() as connection:
+        document = connection.execute(
+            "SELECT * FROM document_jobs WHERE id = ? AND user_id = ? AND knowledge_base_id = ?",
+            (file_id, user["id"], knowledge_base_id),
+        ).fetchone()
+    if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
 
+    with get_connection() as connection:
+        connection.execute("DELETE FROM document_jobs WHERE id = ?", (file_id,))
     delete_document(file_id)
+    if document["stored_path"]:
+        Path(document["stored_path"]).unlink(missing_ok=True)
     for file_path in UPLOAD_DIR.glob(f"{file_id}.*"):
         file_path.unlink(missing_ok=True)
 
     return {"message": "文档已删除"}
 
 
-@app.post("/upload")
+@app.post("/upload", status_code=202)
 async def upload_file(
     file: UploadFile = File(...),
     knowledge_base_id: str = Form(...),
@@ -351,40 +491,76 @@ async def upload_file(
             buffer
         )
 
-    try:
-        sections = load_document_sections(str(file_path))
-    except Exception as e:
-        file_path.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=400,
-            detail=f"文件解析失败，请确认是有效的 PDF 或 Word（.docx）：{e}"
+    content_hash = file_sha256(file_path)
+    with get_connection() as connection:
+        duplicate = connection.execute(
+            """
+            SELECT id, filename, status FROM document_jobs
+            WHERE user_id = ? AND knowledge_base_id = ? AND content_hash = ?
+              AND status IN ('pending', 'processing', 'ready')
+            LIMIT 1
+            """,
+            (user["id"], knowledge_base_id, content_hash),
+        ).fetchone()
+        if duplicate:
+            file_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=409,
+                detail=f"相同内容的文档“{duplicate['filename']}”已存在",
+            )
+
+        timestamp = utc_now()
+        connection.execute(
+            """
+            INSERT INTO document_jobs
+            (id, user_id, knowledge_base_id, filename, stored_path, content_hash,
+             status, stage, error, chunks, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', '等待处理', NULL, 0, ?, ?)
+            """,
+            (
+                file_id,
+                user["id"],
+                knowledge_base_id,
+                file.filename,
+                str(file_path),
+                content_hash,
+                timestamp,
+                timestamp,
+            ),
         )
 
-    if not sections:
-        file_path.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=400,
-            detail="文件中没有可提取的文本"
-        )
-
-    chunks = split_sections(sections)
-    texts = [chunk["text"] for chunk in chunks]
-    embeddings = embed_texts(texts)
-
-    add_documents(
-        texts,
-        embeddings,
-        filename=file.filename,
-        file_id=file_id,
-        uploaded_at=datetime.now(timezone.utc).isoformat(),
-        chunk_metadatas=chunks,
-        user_id=user["id"],
-        knowledge_base_id=knowledge_base_id,
-    )
+    schedule_document_job(file_id)
 
     return {
-        "message": "上传并入库成功",
+        "message": "文件已接收，正在后台处理",
         "id": file_id,
         "filename": file.filename,
-        "chunks": len(chunks)
+        "status": "pending",
+        "stage": "等待处理",
     }
+
+
+@app.post("/documents/{file_id}/retry", status_code=202)
+def retry_document(
+    file_id: str,
+    knowledge_base_id: str,
+    user=Depends(get_current_user),
+):
+    get_owned_knowledge_base(knowledge_base_id, user["id"])
+    with get_connection() as connection:
+        document = connection.execute(
+            "SELECT * FROM document_jobs WHERE id = ? AND user_id = ? AND knowledge_base_id = ?",
+            (file_id, user["id"], knowledge_base_id),
+        ).fetchone()
+        if not document:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        if document["status"] != "failed":
+            raise HTTPException(status_code=400, detail="只有处理失败的文档可以重试")
+        if not document["stored_path"] or not Path(document["stored_path"]).exists():
+            raise HTTPException(status_code=400, detail="原始文件已丢失，请重新上传")
+        connection.execute(
+            "UPDATE document_jobs SET status = 'pending', stage = '等待重试', error = NULL, updated_at = ? WHERE id = ?",
+            (utc_now(), file_id),
+        )
+    schedule_document_job(file_id)
+    return {"message": "已重新提交处理", "id": file_id}

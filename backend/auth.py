@@ -60,6 +60,57 @@ def init_database():
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS document_jobs (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                knowledge_base_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                stored_path TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                status TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                error TEXT,
+                chunks INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_document_jobs_scope ON document_jobs(user_id, knowledge_base_id, created_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_document_jobs_hash ON document_jobs(user_id, knowledge_base_id, content_hash)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS query_logs (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                knowledge_base_id TEXT NOT NULL,
+                question TEXT NOT NULL,
+                status TEXT NOT NULL,
+                retrieval_ms REAL NOT NULL DEFAULT 0,
+                model_ms REAL NOT NULL DEFAULT 0,
+                total_ms REAL NOT NULL DEFAULT 0,
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                total_tokens INTEGER NOT NULL DEFAULT 0,
+                sources_json TEXT NOT NULL DEFAULT '[]',
+                error TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(knowledge_base_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_query_logs_scope ON query_logs(user_id, knowledge_base_id, created_at)"
+        )
         users = connection.execute("SELECT id FROM users").fetchall()
         for user in users:
             ensure_default_knowledge_base(user["id"], connection)

@@ -21,7 +21,11 @@ interface DocumentItem {
   id: string;
   filename: string;
   chunks: number;
-  uploaded_at: string;
+  status: "pending" | "processing" | "ready" | "failed";
+  stage: string;
+  error?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface User {
@@ -33,6 +37,30 @@ interface KnowledgeBase {
   id: string;
   name: string;
   created_at?: string;
+}
+
+interface ObservabilitySummary {
+  requests: number;
+  successes: number;
+  failures: number;
+  avg_retrieval_ms: number;
+  avg_model_ms: number;
+  avg_total_ms: number;
+  total_tokens: number;
+}
+
+interface QueryLog {
+  id: string;
+  question: string;
+  status: "processing" | "success" | "error" | "cancelled";
+  retrieval_ms: number;
+  model_ms: number | null;
+  total_ms: number | null;
+  total_tokens: number;
+  source_count: number;
+  top_score: number | null;
+  error?: string;
+  created_at: string;
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -64,6 +92,8 @@ function App() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [knowledgeBaseId, setKnowledgeBaseId] = useState("");
+  const [showObservability, setShowObservability] = useState(false);
+  const [observability, setObservability] = useState<{ summary: ObservabilitySummary; recent: QueryLog[] } | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +135,23 @@ function App() {
     });
   }, [authorizationHeaders]);
 
+  const loadObservability = useCallback(async () => {
+    if (!knowledgeBaseId) {
+      setObservability(null);
+      return;
+    }
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/observability/summary?knowledge_base_id=${encodeURIComponent(knowledgeBaseId)}`,
+        { headers: authorizationHeaders() },
+      );
+      if (!response.ok) throw new Error("加载运行数据失败");
+      setObservability(await response.json());
+    } catch (error) {
+      console.error(error);
+    }
+  }, [authorizationHeaders, knowledgeBaseId]);
+
 
 
   useEffect(()=>{
@@ -129,6 +176,18 @@ function App() {
     const timer = window.setTimeout(() => void loadDocuments(), 0);
     return () => window.clearTimeout(timer);
   }, [token, knowledgeBaseId, loadDocuments]);
+
+  useEffect(() => {
+    if (!token || !knowledgeBaseId) return;
+    const timer = window.setTimeout(() => void loadObservability(), 0);
+    return () => window.clearTimeout(timer);
+  }, [token, knowledgeBaseId, loadObservability]);
+
+  useEffect(() => {
+    if (!documents.some(document => document.status === "pending" || document.status === "processing")) return;
+    const timer = window.setInterval(() => void loadDocuments(), 1500);
+    return () => window.clearInterval(timer);
+  }, [documents, loadDocuments]);
 
   async function submitAuth() {
     setAuthLoading(true);
@@ -226,6 +285,20 @@ function App() {
     await loadDocuments();
   }
 
+  async function retryDocument(document: DocumentItem) {
+    const response = await fetch(
+      `${API_BASE_URL}/documents/${document.id}/retry?knowledge_base_id=${encodeURIComponent(knowledgeBaseId)}`,
+      { method: "POST", headers: authorizationHeaders() },
+    );
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      setUploadStatus(data?.detail ?? "重新处理失败");
+      return;
+    }
+    setUploadStatus(`已重新处理：${document.filename}`);
+    await loadDocuments();
+  }
+
 
 
   async function uploadFile(file: File) {
@@ -260,7 +333,7 @@ function App() {
       }
 
       setUploadStatus(
-        `已入库：${data.filename}（${data.chunks} 个片段）`
+        `已提交：${data.filename}，正在后台处理`
       );
       await loadDocuments();
     } catch (error) {
@@ -429,6 +502,7 @@ function App() {
 
 
       setLoading(false);
+      await loadObservability();
 
 
     }
@@ -474,8 +548,45 @@ function App() {
           {knowledgeBases.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select>
         <button onClick={() => void createKnowledgeBase()}>新建</button>
+        <button onClick={() => setShowObservability(value => !value)}>运行数据</button>
         <button className="danger-button" disabled={knowledgeBases.length <= 1} onClick={() => void deleteCurrentKnowledgeBase()}>删除空间</button>
       </section>
+
+      {showObservability && observability && (
+        <section className="observability-panel">
+          <div className="observability-heading">
+            <h2>运行数据</h2>
+            <button onClick={() => void loadObservability()}>刷新</button>
+          </div>
+          <div className="metric-grid">
+            <div><strong>{observability.summary.requests}</strong><span>总问答</span></div>
+            <div><strong>{observability.summary.requests ? Math.round(observability.summary.successes / observability.summary.requests * 100) : 0}%</strong><span>成功率</span></div>
+            <div><strong>{Math.round(observability.summary.avg_total_ms)} ms</strong><span>平均总耗时</span></div>
+            <div><strong>{observability.summary.total_tokens}</strong><span>累计 Token</span></div>
+          </div>
+          <p className="metric-detail">
+            平均检索 {Math.round(observability.summary.avg_retrieval_ms)} ms · 平均模型 {Math.round(observability.summary.avg_model_ms)} ms · 失败 {observability.summary.failures} 次
+          </p>
+          <div className="query-table-wrap">
+            <table className="query-table">
+              <thead><tr><th>问题</th><th>状态</th><th>检索</th><th>模型</th><th>Token</th><th>命中</th></tr></thead>
+              <tbody>
+                {observability.recent.map(item => (
+                  <tr key={item.id} title={item.error || item.question}>
+                    <td>{item.question}</td>
+                    <td><span className={`query-status ${item.status}`}>{item.status === "success" ? "成功" : item.status === "processing" ? "处理中" : "失败"}</span></td>
+                    <td>{Math.round(item.retrieval_ms)} ms</td>
+                    <td>{item.model_ms == null ? "-" : `${Math.round(item.model_ms)} ms`}</td>
+                    <td>{item.total_tokens ?? 0}</td>
+                    <td>{item.source_count}{item.top_score == null ? "" : ` / ${item.top_score}`}</td>
+                  </tr>
+                ))}
+                {!observability.recent.length && <tr><td colSpan={6} className="empty-cell">还没有问答记录</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <div className="toolbar">
         <input
@@ -517,8 +628,17 @@ function App() {
           <ul>
             {documents.map(document => (
               <li key={document.id}>
-                <span>{document.filename} · {document.chunks} 个片段</span>
-                <button onClick={() => void deleteDocument(document)}>删除</button>
+                <div className="document-info">
+                  <span>{document.filename}</span>
+                  <small className={`document-status ${document.status}`}>
+                    {document.status === "ready" ? `已完成 · ${document.chunks} 个片段` : document.stage}
+                  </small>
+                  {document.error && <small className="document-error">{document.error}</small>}
+                </div>
+                <div className="document-actions">
+                  {document.status === "failed" && <button onClick={() => void retryDocument(document)}>重试</button>}
+                  <button onClick={() => void deleteDocument(document)}>删除</button>
+                </div>
               </li>
             ))}
           </ul>
@@ -629,7 +749,7 @@ function App() {
 
           onClick={sendMessage}
 
-          disabled={loading}
+          disabled={loading || !knowledgeBaseId}
 
         >
 

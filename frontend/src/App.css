@@ -106,6 +106,78 @@
   color: #b91c1c;
 }
 
+.observability-panel {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
+.observability-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.observability-heading h2 { margin: 0; font-size: 17px; }
+.observability-heading button { width: auto; margin: 0; padding: 5px 10px; }
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.metric-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 9px;
+  background: white;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+}
+
+.metric-grid strong { color: #1d4ed8; font-size: 20px; }
+.metric-grid span,
+.metric-detail { color: #64748b; font-size: 12px; }
+.metric-detail { margin: 10px 0; }
+.query-table-wrap { overflow-x: auto; }
+
+.query-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.query-table th,
+.query-table td {
+  padding: 8px 6px;
+  border-top: 1px solid #e2e8f0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.query-table td:first-child {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.query-status.success { color: #15803d; }
+.query-status.error,
+.query-status.cancelled { color: #b91c1c; }
+.query-status.processing { color: #2563eb; }
+.empty-cell { color: #64748b; text-align: center !important; }
+
+@media (max-width: 720px) {
+  .chat-container { width: auto; margin: 20px 12px; }
+  .knowledge-base-bar { flex-wrap: wrap; }
+  .metric-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
 
 h1 {
   text-align: center;
@@ -163,6 +235,48 @@ h1 {
   gap: 12px;
   padding: 8px 0;
   border-top: 1px solid #f1f5f9;
+}
+
+.document-info {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.document-info > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-status {
+  color: #64748b;
+}
+
+.document-status.processing,
+.document-status.pending {
+  color: #2563eb;
+}
+
+.document-status.ready {
+  color: #15803d;
+}
+
+.document-status.failed,
+.document-error {
+  color: #b91c1c;
+}
+
+.document-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.document-actions button {
+  width: auto;
+  margin: 0;
 }
 
 .document-panel li:first-child {

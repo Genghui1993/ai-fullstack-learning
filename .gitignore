@@ -11,6 +11,8 @@ __pycache__/
 # Knowledge base runtime data
 backend/chroma/
 backend/uploads/
+backend/app.db
+backend/.auth_secret
 
 # Node
 frontend/node_modules/

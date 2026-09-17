@@ -9,7 +9,8 @@ model = SentenceTransformer(
 def embed_texts(texts:list[str]):
 
     vectors = model.encode(
-        texts
+        texts,
+        normalize_embeddings=True,
     )
 
     return vectors.tolist()

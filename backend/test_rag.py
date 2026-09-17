@@ -3,7 +3,7 @@ from rag.splitter import split_text
 
 
 text = load_pdf(
-    "test.pdf"
+    "data/test.pdf"
 )
 
 
